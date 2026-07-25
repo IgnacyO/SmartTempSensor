@@ -1,0 +1,24 @@
+Temp, humidity and air quality sensor monitoring system.
+
+Specification:
+- Technologies:
+    - Nodered
+    - Mqtt client / mosqtuitto broker
+    - Grafana
+    - Esp32 + arduino (ultimately esp-idf)
+    - temp and humidity sensor
+    - beeper
+    - docker for all microservices
+    - raspberry pi connected via rj45
+
+- Requirements:
+    - User can log in to grafana and see every datapoint via dashboard
+    - Communication between sensors and cloud must be encrypted ultimately using ssl certificates
+    - Sensor must enter sleep mode on multiple wifi / mqtt failures and then wake up after some time to save battery
+    - Sensor controls its embedded led to indicate its state (off - sleeping, always on - connecting to wifi, fast blinking - connecting to mqtt broker, blinking slowly - ok)
+    - Sensor triggers 3 beeps every minute if temp is above some threshold 40 degs / or quality is really bad (metric to be tested)
+    - Node-red sends alert when temp reaches 40+ degs / or quality is really bad (metric to be tested)
+    - Grafana displays an alert when temp reaches 40+ degs / or quality is really bad (metric to be tested)
+    - Data is being removed after 3 months from database
+    - Alert is sent if sensor hasnt sent any data for over 2h
+    - Each sensor comes with predefined name + id
