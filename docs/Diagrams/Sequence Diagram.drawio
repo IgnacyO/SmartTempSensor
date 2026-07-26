@@ -1,0 +1,59 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Strona-1" id="6zGSyKwvlGQEMQwkITYQ">
+    <mxGraphModel dx="1290" dy="1925" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-1" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="ESP32" vertex="1">
+          <mxGeometry height="300" width="100" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-2" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="Mosquitto (MQTT Broker)" vertex="1">
+          <mxGeometry height="300" width="130" x="160" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-3" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="Node-RED" vertex="1">
+          <mxGeometry height="300" width="100" x="370" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-4" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="InfludDB" vertex="1">
+          <mxGeometry height="300" width="100" x="540" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-5" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="Grafana" vertex="1">
+          <mxGeometry height="300" width="100" x="720" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-6" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;curved=0;rounded=0;" value="MQTT PUBLISH">
+          <mxGeometry relative="1" width="80" as="geometry">
+            <mxPoint x="49.32352941176464" y="420" as="sourcePoint" />
+            <mxPoint x="224.5" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-7" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;curved=0;rounded=0;" value="&amp;nbsp;Deliver msg">
+          <mxGeometry relative="1" width="80" as="geometry">
+            <mxPoint x="224.5" y="450" as="sourcePoint" />
+            <mxPoint x="419.5" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-8" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=block;curved=0;rounded=0;" value="&lt;div&gt;Parse JSON&lt;/div&gt;&lt;div&gt;Write point&lt;/div&gt;">
+          <mxGeometry relative="1" width="80" as="geometry">
+            <mxPoint x="420.0035294117646" y="489.40999999999997" as="sourcePoint" />
+            <mxPoint x="590.18" y="489.40999999999997" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-10" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;curved=0;rounded=0;" value="Query data">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="769.5" y="530" as="sourcePoint" />
+            <mxPoint x="589.3235294117646" y="530" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-11" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;curved=0;rounded=0;" value="Datapoints set">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="589.3235294117646" y="590" as="sourcePoint" />
+            <mxPoint x="769.5" y="590" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Zv6CHfnF-Qe1oA7y6G7b-12" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="&lt;h1&gt;Sequence diagram&lt;/h1&gt;" vertex="1">
+          <mxGeometry height="30" width="360" x="234" y="110" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
