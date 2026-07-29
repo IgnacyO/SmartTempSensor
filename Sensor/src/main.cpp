@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <AsyncMqttClient.h>
 
 // FreeRTOS includes
 extern "C"
@@ -15,7 +16,6 @@ extern "C"
 #ifndef WIFI_PASS
 #define WIFI_PASS "some_pass"
 #endif
-#define WIFI_CONNECT_TRIES_COUNT 3
 #define WIFI_CONNECT_TIMEOUT_MS 5000
 
 #define MAIN_TASK_TIMEOUT_MS 10000
@@ -31,16 +31,11 @@ enum ProgramState
   Publishing
 } volatile eProgState;
 
-enum ConnectionState
-{
-  WifiConnected,
-  MTTQConnected,
-  Disconnected
-} volatile eConnState;
-
 typedef int8_t wifi_conn_ret_t;
+typedef int8_t mqtt_conn_ret_t;
 
 // Globals
+AsyncMqttClient xMqttClient;
 TaskHandle_t xMainTaskHandle;
 
 // Task and callback functions
@@ -67,7 +62,6 @@ void setup()
   digitalWrite(LED_PIN, LED_OFF);
 
   eProgState = Idle;
-  eConnState = Disconnected;
 
   delay(5000);
 
@@ -76,7 +70,6 @@ void setup()
     for (;;)
       ;
   }
-  // WiFi.onEvent(WiFiEvent);
 }
 
 void loop()
@@ -105,17 +98,17 @@ void vMainTask(void *pv)
   for (;;)
   {
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(MAIN_TASK_TIMEOUT_MS));
-    if (eConnState != MTTQConnected)
+    if (!xMqttClient.connected())
     {
       eProgState = Connecting;
-      if (eConnState != WifiConnected)
+      if (!WiFi.isConnected())
       {
         if (xWifiConnect())
         {
           goto task_return;
         }
       }
-      // connect to MTTQ
+      // connect to mqtt
     }
     // do rest
   task_return:
@@ -131,7 +124,6 @@ wifi_conn_ret_t xWifiConnect(void)
   {
     if (WiFi.status() == WL_CONNECTED)
     {
-      eConnState = WifiConnected;
       Serial.println("WiFi connected");
       Serial.println("IP address: ");
       Serial.println(WiFi.localIP());
@@ -139,7 +131,5 @@ wifi_conn_ret_t xWifiConnect(void)
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }
-  WiFi.disconnect();
-  eConnState = Disconnected;
   return -1;
 }
