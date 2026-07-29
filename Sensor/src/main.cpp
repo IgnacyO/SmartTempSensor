@@ -16,7 +16,7 @@ extern "C"
 #define WIFI_PASS "some_pass"
 #endif
 #define WIFI_CONNECT_TRIES_COUNT 3
-#define WIFI_CONNECT_TIMEOUT_MS 1000
+#define WIFI_CONNECT_TIMEOUT_MS 5000
 
 #define MAIN_TASK_TIMEOUT_MS 10000
 #define LED_PIN 8
@@ -38,19 +38,10 @@ enum ConnectionState
   Disconnected
 } volatile eConnState;
 
-enum WifiStateFlag : uint32_t
-{
-  Wifi_PendingFlag = 0,
-  Wifi_FinishedFlag = 0b001,
-  Wifi_SuccessFlag = 0b010,
-  Wifi_FailFlag = 0b100
-};
-
 typedef int8_t wifi_conn_ret_t;
 
 // Globals
 TaskHandle_t xMainTaskHandle;
-volatile uint32_t ulWifiStateFlag;
 
 // Task and callback functions
 void vMainTask(void *pv);
@@ -64,23 +55,6 @@ inline void vBlinkLedFor(u16_t usPeriodMs)
   vTaskDelay(pdMS_TO_TICKS(usPeriodMs / 2));
   digitalWrite(LED_PIN, LED_OFF);
   vTaskDelay(pdMS_TO_TICKS(usPeriodMs / 2));
-}
-
-void WiFiEvent(WiFiEvent_t event)
-{
-  switch (event)
-  {
-  case SYSTEM_EVENT_STA_GOT_IP:
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-    ulWifiStateFlag = Wifi_FinishedFlag | Wifi_SuccessFlag;
-    break;
-  case SYSTEM_EVENT_STA_DISCONNECTED:
-    Serial.println("WiFi lost connection");
-    ulWifiStateFlag = Wifi_FinishedFlag | Wifi_FailFlag;
-    break;
-  }
 }
 
 void setup()
@@ -102,7 +76,7 @@ void setup()
     for (;;)
       ;
   }
-  WiFi.onEvent(WiFiEvent);
+  // WiFi.onEvent(WiFiEvent);
 }
 
 void loop()
@@ -125,7 +99,7 @@ void loop()
   }
 }
 
-void vMainTask(TimerHandle_t xTimer)
+void vMainTask(void *pv)
 {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   for (;;)
@@ -151,26 +125,21 @@ void vMainTask(TimerHandle_t xTimer)
 
 wifi_conn_ret_t xWifiConnect(void)
 {
-  ulWifiStateFlag = Wifi_PendingFlag;
-  for (uint8_t tries = 0; tries < WIFI_CONNECT_TRIES_COUNT; tries++)
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  uint32_t startTime = millis();
+  while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS)
   {
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    uint32_t startTime = millis();
-    while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS)
+    if (WiFi.status() == WL_CONNECTED)
     {
-      if (ulWifiStateFlag & (Wifi_SuccessFlag | Wifi_FinishedFlag))
-      {
-        eConnState = WifiConnected;
-        return 0;
-      }
-      else if (ulWifiStateFlag & (Wifi_FailFlag | Wifi_FinishedFlag))
-      {
-        eConnState = Disconnected;
-        return -1;
-      }
-      vTaskDelay(pdMS_TO_TICKS(10));
+      eConnState = WifiConnected;
+      Serial.println("WiFi connected");
+      Serial.println("IP address: ");
+      Serial.println(WiFi.localIP());
+      return 0;
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
+  WiFi.disconnect();
   eConnState = Disconnected;
   return -1;
 }
