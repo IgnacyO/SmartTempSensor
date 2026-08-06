@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncMqttClient.h>
+#include <DHT.h>
+#include "isensor.h"
 
 // FreeRTOS includes
 extern "C"
@@ -49,6 +51,7 @@ typedef int8_t mqtt_conn_ret_t;
 // Globals
 AsyncMqttClient xMqttClient;
 TaskHandle_t xMainTaskHandle;
+void *pvSensor;
 
 // Task and callback functions
 void vMainTask(void *pv);
@@ -98,6 +101,14 @@ void setup()
   Serial.println();
   Serial.println("========================================");
   Serial.println("SmartTempSensor starting up...");
+
+  pvSensor = pvInit(nullptr);
+  if (sensorError)
+  {
+    for (;;)
+      ;
+  }
+
   Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
 
   IPAddress mqttHost;
@@ -188,6 +199,8 @@ void vMainTask(void *pv)
     {
       Serial.println("[MAIN] MQTT client is already connected. No reconnect needed.");
     }
+
+    Serial.printf("Temp: %f\n", fGetTemperature(pvSensor));
     // do rest
   task_return:
     eProgState = Idle;
