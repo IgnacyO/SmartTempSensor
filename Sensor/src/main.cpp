@@ -18,8 +18,16 @@ extern "C"
 #endif
 #define WIFI_CONNECT_TIMEOUT_MS 5000
 
-#define MQTT_HOST IPAddress(192, 168, 1, 10)
-#define MQTT_PORT 1883
+#ifndef MQTT_HOST
+#ifdef MQTT_IP
+#define MQTT_HOST MQTT_IP
+#else
+#define MQTT_HOST "192.168.1.10"
+#endif
+#endif
+#ifndef MQTT_PORT
+#define MQTT_PORT "1883"
+#endif
 #define MQTT_CONNECT_TIMEOUT_MS 5000
 
 #define MAIN_TASK_TIMEOUT_MS 10000
@@ -91,7 +99,22 @@ void setup()
   Serial.println("========================================");
   Serial.println("SmartTempSensor starting up...");
   Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
-  Serial.printf("[SYS] MQTT broker: %d.%d.%d.%d:%d\n", MQTT_HOST[0], MQTT_HOST[1], MQTT_HOST[2], MQTT_HOST[3], MQTT_PORT);
+
+  IPAddress mqttHost;
+  if (!mqttHost.fromString(MQTT_HOST))
+  {
+    Serial.printf("[SYS] Invalid MQTT host '%s'. Falling back to default.\n", MQTT_HOST);
+    mqttHost = IPAddress(192, 168, 1, 10);
+  }
+
+  uint16_t mqttPort = (uint16_t)atoi(MQTT_PORT);
+  if (mqttPort == 0)
+  {
+    Serial.printf("[SYS] Invalid MQTT port '%s'. Falling back to default 1883.\n", MQTT_PORT);
+    mqttPort = 1883;
+  }
+
+  Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, mqttPort);
   Serial.println("========================================");
 
   pinMode(LED_PIN, OUTPUT);
@@ -109,7 +132,7 @@ void setup()
   xMqttClient.onConnect(onMqttConnect);
   xMqttClient.onDisconnect(onMqttDisconnect);
   xMqttClient.onPublish(onMqttPublish);
-  xMqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  xMqttClient.setServer(mqttHost, mqttPort);
 }
 
 void loop()
@@ -200,7 +223,7 @@ wifi_conn_ret_t xWifiConnect(void)
 
 mqtt_conn_ret_t xMqttConnect(void)
 {
-  Serial.printf("[MQTT] Attempting connection to broker at %d.%d.%d.%d:%d...\n", MQTT_HOST[0], MQTT_HOST[1], MQTT_HOST[2], MQTT_HOST[3], MQTT_PORT);
+  Serial.printf("[MQTT] Attempting connection to broker using configured host/port...\n");
   xMqttClient.connect();
   uint32_t startTime = millis();
   while (millis() - startTime < MQTT_CONNECT_TIMEOUT_MS)
