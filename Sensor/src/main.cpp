@@ -59,6 +59,8 @@ inline void vBlinkLedFor(u16_t usPeriodMs)
 
 void onMqttConnect(bool sessionPresent)
 {
+  Serial.println("[MQTT] Connection established successfully.");
+  Serial.printf("[MQTT] Session present: %s\n", sessionPresent ? "yes" : "no");
   xMqttClient.publish("test/lol", 0, true, "test 1");
   // Serial.println("Publishing at QoS 0");
   // uint16_t packetIdPub1 = xMqttClient.publish("test/lol", 1, true, "test 2");
@@ -71,22 +73,26 @@ void onMqttConnect(bool sessionPresent)
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
-  Serial.println("Disconnected from MQTT");
-  Serial.printf("Reason: %d\n", reason);
+  Serial.println("[MQTT] Lost connection to broker.");
+  Serial.printf("[MQTT] Disconnect reason: %d\n", reason);
 }
 
 void onMqttPublish(uint16_t packetId)
 {
-  Serial.println("Publish acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
+  Serial.println("[MQTT] Publish acknowledged.");
+  Serial.printf("[MQTT] Packet ID: %u\n", packetId);
 }
 
 void setup()
 {
   Serial.begin(9600);
+  delay(1000);
   Serial.println();
-  Serial.println();
+  Serial.println("========================================");
+  Serial.println("SmartTempSensor starting up...");
+  Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
+  Serial.printf("[SYS] MQTT broker: %d.%d.%d.%d:%d\n", MQTT_HOST[0], MQTT_HOST[1], MQTT_HOST[2], MQTT_HOST[3], MQTT_PORT);
+  Serial.println("========================================");
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LED_OFF);
@@ -134,18 +140,30 @@ void vMainTask(void *pv)
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(MAIN_TASK_TIMEOUT_MS));
     if (!xMqttClient.connected())
     {
+      Serial.println("[MAIN] MQTT client is not connected. Starting reconnect sequence...");
       eProgState = Connecting;
       if (!WiFi.isConnected())
       {
+        Serial.println("[MAIN] WiFi is not connected. Attempting WiFi connection...");
         if (xWifiConnect())
         {
+          Serial.println("[MAIN] WiFi connection attempt failed.");
           goto task_return;
         }
       }
+      else
+      {
+        Serial.println("[MAIN] WiFi is already connected; proceeding to MQTT.");
+      }
       if (xMqttConnect())
       {
+        Serial.println("[MAIN] MQTT connection attempt failed.");
         goto task_return;
       }
+    }
+    else
+    {
+      Serial.println("[MAIN] MQTT client is already connected. No reconnect needed.");
     }
     // do rest
   task_return:
@@ -155,34 +173,46 @@ void vMainTask(void *pv)
 
 wifi_conn_ret_t xWifiConnect(void)
 {
+  Serial.printf("[WiFi] Attempting to connect to SSID '%s'...\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t startTime = millis();
+  int lastStatus = -1;
   while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS)
   {
+    int currentStatus = WiFi.status();
+    if (currentStatus != lastStatus)
+    {
+      Serial.printf("[WiFi] Status update: %d\n", currentStatus);
+      lastStatus = currentStatus;
+    }
     if (WiFi.status() == WL_CONNECTED)
     {
-      Serial.println("WiFi connected");
-      Serial.println("IP address: ");
+      Serial.println("[WiFi] Connected successfully.");
+      Serial.print("[WiFi] Assigned IP address: ");
       Serial.println(WiFi.localIP());
       return 0;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }
+  Serial.printf("[WiFi] Connection failed after %lu ms. Final status: %d\n", millis() - startTime, WiFi.status());
   return -1;
 }
 
 mqtt_conn_ret_t xMqttConnect(void)
 {
+  Serial.printf("[MQTT] Attempting connection to broker at %d.%d.%d.%d:%d...\n", MQTT_HOST[0], MQTT_HOST[1], MQTT_HOST[2], MQTT_HOST[3], MQTT_PORT);
   xMqttClient.connect();
   uint32_t startTime = millis();
   while (millis() - startTime < MQTT_CONNECT_TIMEOUT_MS)
   {
     if (xMqttClient.connected())
     {
-      Serial.println("MQTT connected");
+      Serial.println("[MQTT] Connected successfully.");
       return 0;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }
+  Serial.printf("[MQTT] Connection failed after %lu ms.\n", millis() - startTime);
+
   return -1;
 }
