@@ -72,7 +72,7 @@ void onMqttConnect(bool sessionPresent)
 {
   Serial.println("[MQTT] Connection established successfully.");
   Serial.printf("[MQTT] Session present: %s\n", sessionPresent ? "yes" : "no");
-  xMqttClient.publish("test/lol", 0, true, "test 1");
+  xMqttClient.publish("test", 0, true, "test 1");
   // Serial.println("Publishing at QoS 0");
   // uint16_t packetIdPub1 = xMqttClient.publish("test/lol", 1, true, "test 2");
   // Serial.print("Publishing at QoS 1, packetId: ");
