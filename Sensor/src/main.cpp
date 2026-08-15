@@ -28,7 +28,8 @@ extern "C"
 #endif
 #endif
 #ifndef MQTT_PORT
-#define MQTT_PORT "1883"
+
+#define MQTT_PORT 1883
 #endif
 #define MQTT_CONNECT_TIMEOUT_MS 5000
 
@@ -36,12 +37,14 @@ extern "C"
 #define LED_PIN 8
 #define LED_ON LOW
 #define LED_OFF HIGH
+#define SENSOR_TOPIC "test"
 
 // User data types
 enum ProgramState
 {
   Idle,
-  Connecting,
+  ConnectingWiFi,
+  ConnectingMqtt,
   Publishing
 } volatile eProgState;
 
@@ -52,13 +55,36 @@ typedef int8_t mqtt_conn_ret_t;
 AsyncMqttClient xMqttClient;
 TaskHandle_t xMainTaskHandle;
 void *pvSensor;
+volatile bool xWifiConnected = false;
+volatile bool xMqttConnected = false;
 
 // Task and callback functions
 void vMainTask(void *pv);
 
 // State specific functions
-wifi_conn_ret_t xWifiConnect(void);
-mqtt_conn_ret_t xMqttConnect(void);
+void vStartWifi(void);
+void vStartMqtt(void);
+
+void vHandleWiFiEvent(WiFiEvent_t event)
+{
+  switch (event)
+  {
+  case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    xWifiConnected = true;
+    Serial.print("[WiFi] Connected. IP: ");
+    Serial.println(WiFi.localIP());
+    vStartMqtt();
+    break;
+  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+    xWifiConnected = false;
+    xMqttConnected = false;
+    Serial.println("[WiFi] Disconnected.");
+    eProgState = ConnectingWiFi;
+    break;
+  default:
+    break;
+  }
+}
 
 inline void vBlinkLedFor(u16_t usPeriodMs)
 {
@@ -70,22 +96,49 @@ inline void vBlinkLedFor(u16_t usPeriodMs)
 
 void onMqttConnect(bool sessionPresent)
 {
+  xMqttConnected = true;
+  eProgState = Idle;
   Serial.println("[MQTT] Connection established successfully.");
   Serial.printf("[MQTT] Session present: %s\n", sessionPresent ? "yes" : "no");
-  xMqttClient.publish("test", 0, true, "test 1");
-  // Serial.println("Publishing at QoS 0");
-  // uint16_t packetIdPub1 = xMqttClient.publish("test/lol", 1, true, "test 2");
-  // Serial.print("Publishing at QoS 1, packetId: ");
-  // Serial.println(packetIdPub1);
-  // uint16_t packetIdPub2 = xMqttClient.publish("test/lol", 2, true, "test 3");
-  // Serial.print("Publishing at QoS 2, packetId: ");
-  // Serial.println(packetIdPub2);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
+  xMqttConnected = false;
   Serial.println("[MQTT] Lost connection to broker.");
-  Serial.printf("[MQTT] Disconnect reason: %d\n", reason);
+  const char *reasonText = "UNKNOWN";
+  switch (reason)
+  {
+  case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
+    reasonText = "TCP_DISCONNECTED";
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
+    reasonText = "MQTT_UNACCEPTABLE_PROTOCOL_VERSION";
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
+    reasonText = "MQTT_IDENTIFIER_REJECTED";
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
+    reasonText = "MQTT_SERVER_UNAVAILABLE";
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
+    reasonText = "MQTT_MALFORMED_CREDENTIALS";
+    break;
+  case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
+    reasonText = "MQTT_NOT_AUTHORIZED";
+    break;
+  case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
+    reasonText = "ESP8266_NOT_ENOUGH_SPACE";
+    break;
+  case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
+    reasonText = "TLS_BAD_FINGERPRINT";
+    break;
+  }
+  Serial.printf("[MQTT] Disconnect reason: %s (%d)\n", reasonText, static_cast<int>(reason));
+  if (xWifiConnected)
+  {
+    vStartMqtt();
+  }
 }
 
 void onMqttPublish(uint16_t packetId)
@@ -111,21 +164,7 @@ void setup()
 
   Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
 
-  IPAddress mqttHost;
-  if (!mqttHost.fromString(MQTT_HOST))
-  {
-    Serial.printf("[SYS] Invalid MQTT host '%s'. Falling back to default.\n", MQTT_HOST);
-    mqttHost = IPAddress(192, 168, 1, 10);
-  }
-
-  uint16_t mqttPort = (uint16_t)atoi(MQTT_PORT);
-  if (mqttPort == 0)
-  {
-    Serial.printf("[SYS] Invalid MQTT port '%s'. Falling back to default 1883.\n", MQTT_PORT);
-    mqttPort = 1883;
-  }
-
-  Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, mqttPort);
+  Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, MQTT_PORT);
   Serial.println("========================================");
 
   pinMode(LED_PIN, OUTPUT);
@@ -135,15 +174,21 @@ void setup()
 
   delay(5000);
 
+  xMqttClient.setServer(MQTT_HOST, (uint16_t)atoi(MQTT_PORT));
+  xMqttClient.onConnect(onMqttConnect);
+  xMqttClient.onDisconnect(onMqttDisconnect);
+  xMqttClient.onPublish(onMqttPublish);
+
+  WiFi.onEvent(vHandleWiFiEvent);
+  WiFi.mode(WIFI_STA);
+
   if (xTaskCreate(vMainTask, "mainTask", 3072, NULL, tskIDLE_PRIORITY, &xMainTaskHandle) != pdPASS)
   {
     for (;;)
       ;
   }
-  xMqttClient.onConnect(onMqttConnect);
-  xMqttClient.onDisconnect(onMqttDisconnect);
-  xMqttClient.onPublish(onMqttPublish);
-  xMqttClient.setServer(mqttHost, mqttPort);
+
+  vStartWifi();
 }
 
 void loop()
@@ -152,7 +197,8 @@ void loop()
   {
   case Idle:
     break;
-  case Connecting:
+  case ConnectingWiFi:
+  case ConnectingMqtt:
     vBlinkLedFor(200);
     break;
   case Publishing:
@@ -164,6 +210,7 @@ void loop()
     // vBlinkLedFor(1000);
     break;
   }
+  vTaskDelay(pdMS_TO_TICKS(5));
 }
 
 void vMainTask(void *pv)
@@ -172,83 +219,58 @@ void vMainTask(void *pv)
   for (;;)
   {
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(MAIN_TASK_TIMEOUT_MS));
-    if (!xMqttClient.connected())
+    if (!xWifiConnected)
     {
-      Serial.println("[MAIN] MQTT client is not connected. Starting reconnect sequence...");
-      eProgState = Connecting;
-      if (!WiFi.isConnected())
-      {
-        Serial.println("[MAIN] WiFi is not connected. Attempting WiFi connection...");
-        if (xWifiConnect())
-        {
-          Serial.println("[MAIN] WiFi connection attempt failed.");
-          goto task_return;
-        }
-      }
-      else
-      {
-        Serial.println("[MAIN] WiFi is already connected; proceeding to MQTT.");
-      }
-      if (xMqttConnect())
-      {
-        Serial.println("[MAIN] MQTT connection attempt failed.");
-        goto task_return;
-      }
-    }
-    else
-    {
-      Serial.println("[MAIN] MQTT client is already connected. No reconnect needed.");
+      eProgState = ConnectingWiFi;
+      Serial.println("[MAIN] Waiting for WiFi connection...");
+      continue;
     }
 
-    Serial.printf("Temp: %f\n", fGetTemperature(pvSensor));
-    // do rest
-  task_return:
+    if (!xMqttConnected)
+    {
+      eProgState = ConnectingMqtt;
+      Serial.println("[MAIN] Waiting for MQTT connection...");
+      vStartMqtt();
+      continue;
+    }
+
+    eProgState = Publishing;
+    float temperature = fGetTemperature(pvSensor);
+    Serial.printf("Temp: %f\n", temperature);
+    char payload[16];
+    snprintf(payload, sizeof(payload), "%.2f", temperature);
+    xMqttClient.publish(SENSOR_TOPIC, 0, false, payload);
+
     eProgState = Idle;
   }
 }
 
-wifi_conn_ret_t xWifiConnect(void)
+void vStartWifi(void)
 {
-  Serial.printf("[WiFi] Attempting to connect to SSID '%s'...\n", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  uint32_t startTime = millis();
-  int lastStatus = -1;
-  while (millis() - startTime < WIFI_CONNECT_TIMEOUT_MS)
+  if (WiFi.status() == WL_CONNECTED)
   {
-    int currentStatus = WiFi.status();
-    if (currentStatus != lastStatus)
-    {
-      Serial.printf("[WiFi] Status update: %d\n", currentStatus);
-      lastStatus = currentStatus;
-    }
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      Serial.println("[WiFi] Connected successfully.");
-      Serial.print("[WiFi] Assigned IP address: ");
-      Serial.println(WiFi.localIP());
-      return 0;
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
+    xWifiConnected = true;
+    return;
   }
-  Serial.printf("[WiFi] Connection failed after %lu ms. Final status: %d\n", millis() - startTime, WiFi.status());
-  return -1;
+
+  Serial.printf("[WiFi] Connecting to SSID '%s'...\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
 }
 
-mqtt_conn_ret_t xMqttConnect(void)
+void vStartMqtt(void)
 {
-  Serial.printf("[MQTT] Attempting connection to broker using configured host/port...\n");
-  xMqttClient.connect();
-  uint32_t startTime = millis();
-  while (millis() - startTime < MQTT_CONNECT_TIMEOUT_MS)
+  if (!xWifiConnected)
   {
-    if (xMqttClient.connected())
-    {
-      Serial.println("[MQTT] Connected successfully.");
-      return 0;
-    }
-    vTaskDelay(pdMS_TO_TICKS(100));
+    return;
   }
-  Serial.printf("[MQTT] Connection failed after %lu ms.\n", millis() - startTime);
 
-  return -1;
+  if (xMqttClient.connected())
+  {
+    xMqttConnected = true;
+    return;
+  }
+
+  Serial.printf("[MQTT] Connecting to broker %s:%u...\n", MQTT_HOST, (uint16_t)atoi(MQTT_PORT));
+  eProgState = ConnectingMqtt;
+  xMqttClient.connect();
 }
