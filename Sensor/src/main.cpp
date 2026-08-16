@@ -30,7 +30,7 @@ extern "C"
 #endif
 #endif
 #ifndef MQTT_PORT
-#define MQTT_PORT 1883
+#define MQTT_PORT "1883"
 #endif
 #define MQTT_CONNECT_TIMEOUT_MS 5000
 #define MQTT_RECONNECT_MIN_INTERVAL_MS 3000
@@ -112,6 +112,34 @@ const char *pcMqttDisconnectReasonToString(AsyncMqttClientDisconnectReason reaso
   }
 }
 
+const char *pcWiFiDisconnectReasonToString(uint8_t reason)
+{
+  switch (reason)
+  {
+  case 2:
+    return "AUTH_EXPIRE";
+  case 4:
+    return "ASSOC_EXPIRE";
+  case 15:
+    return "4WAY_HANDSHAKE_TIMEOUT";
+  case 201:
+    return "NO_AP_FOUND";
+  case 202:
+    return "AUTH_FAIL";
+  case 203:
+    return "ASSOC_FAIL";
+  case 204:
+    return "HANDSHAKE_TIMEOUT";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+uint16_t u16GetMqttPort(void)
+{
+  return static_cast<uint16_t>(atoi(MQTT_PORT));
+}
+
 // Task and callback functions
 void vMainTask(void *pv);
 
@@ -119,7 +147,7 @@ void vMainTask(void *pv);
 void vStartWifi(void);
 void vStartMqtt(void);
 
-void vHandleWiFiEvent(WiFiEvent_t event)
+void vHandleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
 {
   switch (event)
   {
@@ -133,7 +161,7 @@ void vHandleWiFiEvent(WiFiEvent_t event)
     xWifiConnected = false;
     xMqttConnected = false;
     xMqttConnecting = false;
-    Serial.println("[WiFi] Disconnected.");
+    Serial.printf("[WiFi] Disconnected. reason=%u (%s)\n", info.wifi_sta_disconnected.reason, pcWiFiDisconnectReasonToString(info.wifi_sta_disconnected.reason));
     eProgState = ConnectingWiFi;
     break;
   default:
@@ -193,7 +221,7 @@ void setup()
 
   Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
 
-  Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, MQTT_PORT);
+  Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, u16GetMqttPort());
   Serial.println("========================================");
 
   xMqttPayload["sensor"] = pcGetSensorName();
@@ -205,13 +233,15 @@ void setup()
 
   delay(5000);
 
-  xMqttClient.setServer(MQTT_HOST, (uint16_t)atoi(MQTT_PORT));
+  xMqttClient.setServer(MQTT_HOST, u16GetMqttPort());
   xMqttClient.onConnect(onMqttConnect);
   xMqttClient.onDisconnect(onMqttDisconnect);
   xMqttClient.onPublish(onMqttPublish);
 
   WiFi.onEvent(vHandleWiFiEvent);
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.setSleep(false);
 
   if (xTaskCreate(vMainTask, "mainTask", 3072, NULL, tskIDLE_PRIORITY, &xMainTaskHandle) != pdPASS)
   {
@@ -241,8 +271,8 @@ void loop()
     {
       digitalWrite(LED_PIN, LED_ON);
     }
+    break;
   default:
-    abort();
     break;
   }
   vTaskDelay(pdMS_TO_TICKS(5));
@@ -273,6 +303,7 @@ void vMainTask(void *pv)
     {
       eProgState = ConnectingWiFi;
       Serial.println("[MAIN] Waiting for WiFi connection...");
+      vStartWifi();
       continue;
     }
 
@@ -334,7 +365,7 @@ void vStartMqtt(void)
   u32LastMqttConnectAttemptMs = u32NowMs;
   xMqttConnecting = true;
 
-  Serial.printf("[MQTT] Connecting to broker %s:%u...\n", MQTT_HOST, (uint16_t)atoi(MQTT_PORT));
+  Serial.printf("[MQTT] Connecting to broker %s:%u...\n", MQTT_HOST, u16GetMqttPort());
   eProgState = ConnectingMqtt;
   xMqttClient.connect();
 }
