@@ -2,7 +2,9 @@
 #include <WiFi.h>
 #include <AsyncMqttClient.h>
 #include <DHT.h>
+#include <ArduinoJson.h>
 #include "isensor.h"
+#include "dht_sensor.h"
 
 // FreeRTOS includes
 extern "C"
@@ -28,16 +30,23 @@ extern "C"
 #endif
 #endif
 #ifndef MQTT_PORT
-
 #define MQTT_PORT 1883
 #endif
 #define MQTT_CONNECT_TIMEOUT_MS 5000
+#define MQTT_RECONNECT_MIN_INTERVAL_MS 3000
+#define MQTT_TOPIC_DOMAIN "test"
+#define MQTT_PAYLOAD_BUFFER_SZ 2048
 
 #define MAIN_TASK_TIMEOUT_MS 10000
 #define LED_PIN 8
 #define LED_ON LOW
 #define LED_OFF HIGH
-#define SENSOR_TOPIC "test"
+
+#ifndef SENSOR_LOCATION
+#define SENSOR_LOCATION "backrooms"
+
+#define MQTT_TOPIC MQTT_TOPIC_DOMAIN "/" SENSOR_LOCATION
+#endif
 
 // User data types
 enum ProgramState
@@ -57,6 +66,51 @@ TaskHandle_t xMainTaskHandle;
 void *pvSensor;
 volatile bool xWifiConnected = false;
 volatile bool xMqttConnected = false;
+volatile bool xMqttConnecting = false;
+volatile bool xMqttConnectedEvent = false;
+volatile bool xMqttDisconnectedEvent = false;
+volatile int xLastMqttDisconnectReason = -1;
+uint32_t u32LastMqttConnectAttemptMs = 0;
+JsonDocument xMqttPayload;
+char caPayloadBuffer[MQTT_PAYLOAD_BUFFER_SZ];
+
+// Helper functions
+inline int RWorNULL(JsonDocument *pxJsonDoc, void *pvSensor, float (*xReadingFn)(void *), const char *key)
+{
+  float reading = xReadingFn(pvSensor);
+  if ((reading == 0 && sensorError == 0) || sensorError > 1)
+  {
+    (*pxJsonDoc)[key] = nullptr; // Writes null value instead of 0
+    return 0;
+  }
+  (*pxJsonDoc)[key] = reading;
+  return -1;
+}
+
+const char *pcMqttDisconnectReasonToString(AsyncMqttClientDisconnectReason reason)
+{
+  switch (reason)
+  {
+  case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
+    return "TCP_DISCONNECTED";
+  case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
+    return "MQTT_UNACCEPTABLE_PROTOCOL_VERSION";
+  case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
+    return "MQTT_IDENTIFIER_REJECTED";
+  case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
+    return "MQTT_SERVER_UNAVAILABLE";
+  case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
+    return "MQTT_MALFORMED_CREDENTIALS";
+  case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
+    return "MQTT_NOT_AUTHORIZED";
+  case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
+    return "ESP8266_NOT_ENOUGH_SPACE";
+  case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
+    return "TLS_BAD_FINGERPRINT";
+  default:
+    return "UNKNOWN";
+  }
+}
 
 // Task and callback functions
 void vMainTask(void *pv);
@@ -73,11 +127,12 @@ void vHandleWiFiEvent(WiFiEvent_t event)
     xWifiConnected = true;
     Serial.print("[WiFi] Connected. IP: ");
     Serial.println(WiFi.localIP());
-    vStartMqtt();
+    eProgState = ConnectingMqtt;
     break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
     xWifiConnected = false;
     xMqttConnected = false;
+    xMqttConnecting = false;
     Serial.println("[WiFi] Disconnected.");
     eProgState = ConnectingWiFi;
     break;
@@ -97,54 +152,22 @@ inline void vBlinkLedFor(u16_t usPeriodMs)
 void onMqttConnect(bool sessionPresent)
 {
   xMqttConnected = true;
+  xMqttConnecting = false;
+  xMqttConnectedEvent = true;
   eProgState = Idle;
-  Serial.println("[MQTT] Connection established successfully.");
-  Serial.printf("[MQTT] Session present: %s\n", sessionPresent ? "yes" : "no");
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
 {
   xMqttConnected = false;
-  Serial.println("[MQTT] Lost connection to broker.");
-  const char *reasonText = "UNKNOWN";
-  switch (reason)
-  {
-  case AsyncMqttClientDisconnectReason::TCP_DISCONNECTED:
-    reasonText = "TCP_DISCONNECTED";
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_UNACCEPTABLE_PROTOCOL_VERSION:
-    reasonText = "MQTT_UNACCEPTABLE_PROTOCOL_VERSION";
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_IDENTIFIER_REJECTED:
-    reasonText = "MQTT_IDENTIFIER_REJECTED";
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_SERVER_UNAVAILABLE:
-    reasonText = "MQTT_SERVER_UNAVAILABLE";
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_MALFORMED_CREDENTIALS:
-    reasonText = "MQTT_MALFORMED_CREDENTIALS";
-    break;
-  case AsyncMqttClientDisconnectReason::MQTT_NOT_AUTHORIZED:
-    reasonText = "MQTT_NOT_AUTHORIZED";
-    break;
-  case AsyncMqttClientDisconnectReason::ESP8266_NOT_ENOUGH_SPACE:
-    reasonText = "ESP8266_NOT_ENOUGH_SPACE";
-    break;
-  case AsyncMqttClientDisconnectReason::TLS_BAD_FINGERPRINT:
-    reasonText = "TLS_BAD_FINGERPRINT";
-    break;
-  }
-  Serial.printf("[MQTT] Disconnect reason: %s (%d)\n", reasonText, static_cast<int>(reason));
-  if (xWifiConnected)
-  {
-    vStartMqtt();
-  }
+  xMqttConnecting = false;
+  xLastMqttDisconnectReason = static_cast<int>(reason);
+  xMqttDisconnectedEvent = true;
 }
 
 void onMqttPublish(uint16_t packetId)
 {
-  Serial.println("[MQTT] Publish acknowledged.");
-  Serial.printf("[MQTT] Packet ID: %u\n", packetId);
+  (void)packetId;
 }
 
 void setup()
@@ -161,11 +184,19 @@ void setup()
     for (;;)
       ;
   }
+  vBegin(pvSensor);
+  if (sensorError)
+  {
+    for (;;)
+      ;
+  }
 
   Serial.printf("[SYS] Using WiFi SSID: %s\n", WIFI_SSID);
 
   Serial.printf("[SYS] MQTT broker: %s:%u\n", MQTT_HOST, MQTT_PORT);
   Serial.println("========================================");
+
+  xMqttPayload["sensor"] = pcGetSensorName();
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LED_OFF);
@@ -196,13 +227,17 @@ void loop()
   switch (eProgState)
   {
   case Idle:
+    if (digitalRead(LED_PIN) == LED_ON)
+    {
+      digitalWrite(LED_PIN, LED_OFF);
+    }
     break;
   case ConnectingWiFi:
   case ConnectingMqtt:
     vBlinkLedFor(200);
     break;
   case Publishing:
-    if (digitalRead(LED_PIN))
+    if (digitalRead(LED_PIN) == LED_OFF)
     {
       digitalWrite(LED_PIN, LED_ON);
     }
@@ -219,6 +254,21 @@ void vMainTask(void *pv)
   for (;;)
   {
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(MAIN_TASK_TIMEOUT_MS));
+
+    if (xMqttConnectedEvent)
+    {
+      xMqttConnectedEvent = false;
+      Serial.println("[MQTT] Connection established successfully.");
+    }
+
+    if (xMqttDisconnectedEvent)
+    {
+      int reason = xLastMqttDisconnectReason;
+      xMqttDisconnectedEvent = false;
+      Serial.println("[MQTT] Lost connection to broker.");
+      Serial.printf("[MQTT] Disconnect reason: %s (%d)\n", pcMqttDisconnectReasonToString(static_cast<AsyncMqttClientDisconnectReason>(reason)), reason);
+    }
+
     if (!xWifiConnected)
     {
       eProgState = ConnectingWiFi;
@@ -235,12 +285,11 @@ void vMainTask(void *pv)
     }
 
     eProgState = Publishing;
-    float temperature = fGetTemperature(pvSensor);
-    Serial.printf("Temp: %f\n", temperature);
-    char payload[16];
-    snprintf(payload, sizeof(payload), "%.2f", temperature);
-    xMqttClient.publish(SENSOR_TOPIC, 0, false, payload);
-
+    RWorNULL(&xMqttPayload, pvSensor, fGetTemperature, "temperature");
+    RWorNULL(&xMqttPayload, pvSensor, fGetHumidity, "humidity");
+    RWorNULL(&xMqttPayload, pvSensor, fGetQuality, "quality");
+    serializeJson(xMqttPayload, caPayloadBuffer);
+    xMqttClient.publish(MQTT_TOPIC, 0, false, caPayloadBuffer);
     eProgState = Idle;
   }
 }
@@ -267,8 +316,23 @@ void vStartMqtt(void)
   if (xMqttClient.connected())
   {
     xMqttConnected = true;
+    xMqttConnecting = false;
     return;
   }
+
+  if (xMqttConnecting)
+  {
+    return;
+  }
+
+  uint32_t u32NowMs = millis();
+  if (u32NowMs - u32LastMqttConnectAttemptMs < MQTT_RECONNECT_MIN_INTERVAL_MS)
+  {
+    return;
+  }
+
+  u32LastMqttConnectAttemptMs = u32NowMs;
+  xMqttConnecting = true;
 
   Serial.printf("[MQTT] Connecting to broker %s:%u...\n", MQTT_HOST, (uint16_t)atoi(MQTT_PORT));
   eProgState = ConnectingMqtt;

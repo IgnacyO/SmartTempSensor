@@ -1,23 +1,13 @@
-#include "isensor.h"
+#include "dht_sensor.h"
 #include <Arduino.h>
 #include <DHT.h>
 #include <DHT_U.h>
 
-#define DHT_PIN_DEFAULT 5
-#define DHT_NO_DEFAULT DHT11
-
-typedef struct
-{
-    int pin;
-    int dht_no;
-} dht_sensor_params_t;
-
-int sensorError;
+extern int sensorError;
 
 float fGetTemperature(void *pvSensor)
 {
     DHT_Unified *xDhtSensor = static_cast<DHT_Unified *>(pvSensor);
-    xDhtSensor->begin();
     sensors_event_t event;
     xDhtSensor->temperature().getEvent(&event);
     if (isnan(event.temperature))
@@ -37,7 +27,6 @@ float fGetTemperature(void *pvSensor)
 float fGetHumidity(void *pvSensor)
 {
     DHT_Unified *xDhtSensor = static_cast<DHT_Unified *>(pvSensor);
-    xDhtSensor->begin();
     sensors_event_t event;
     xDhtSensor->humidity().getEvent(&event);
     if (isnan(event.relative_humidity))
@@ -93,6 +82,12 @@ void vBegin(void *pvSensor)
     DHT_Unified *dhtSensor = static_cast<DHT_Unified *>(pvSensor);
     dhtSensor->begin();
 }
+
+char *pcGetSensorName(void)
+{
+    return DHT_NO_DEFAULT_STR;
+}
+
 void vDeinit(void *pvSensor)
 {
 }
