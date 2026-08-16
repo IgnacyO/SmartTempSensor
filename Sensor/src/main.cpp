@@ -242,7 +242,7 @@ void loop()
       digitalWrite(LED_PIN, LED_ON);
     }
   default:
-    // vBlinkLedFor(1000);
+    abort();
     break;
   }
   vTaskDelay(pdMS_TO_TICKS(5));
