@@ -22,6 +22,7 @@ services:
       DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
       DOCKER_INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
       DOCKER_INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
     healthcheck:
       test: "curl -f http://localhost:8086/ping"
       interval: 5s
@@ -35,6 +36,12 @@ services:
     image: nodered/node-red
     ports:
       - "1880:1880"
+    environment:
+      INFLUXDB_HOST: influxdb
+      INFLUXDB_MEASUREMENT: ${DOCKER_INFLUXDB_MEASUREMENT}
+      INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
+      INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
+      INFLUXDB_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
     volumes:
       - node_red_data:/data
     depends_on:
