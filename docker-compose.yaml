@@ -1,0 +1,56 @@
+services:
+
+  mosquitto:
+    image: eclipse-mosquitto
+    ports:
+      - "1883:1883"
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-p", "1883", "-t", "healthcheck", "-n"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+
+  influxdb:
+    image: influxdb:2
+    ports:
+      - "8181:8181"
+    healthcheck:
+      test: "curl -f http://localhost:8086/ping"
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - ./influxdb/data:/var/lib/influxdb2
+      - ./influxdb/config:/etc/influxdb2
+
+  nodered:
+    image: nodered/node-red
+    ports:
+      - "1880:1880"
+    volumes:
+      - node_red_data:/data
+    depends_on:
+      influxdb:
+        condition: service_healthy
+        restart: true
+      mosquitto:
+        condition: service_healthy
+        restart: true
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      influxdb:
+        condition: service_healthy
+        restart: true
+
+volumes:
+  grafana-data:
+  node_red_data:
