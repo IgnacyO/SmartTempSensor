@@ -5,7 +5,7 @@ services:
     ports:
       - "1883:1883"
     healthcheck:
-      test: [ "CMD", "mosquitto_pub", "-h", "localhost", "-p", "1883", "-t", "healthcheck", "-n" ]
+      test: [ "CMD", "mosquitto_pub", "-h", "localhost", "-p", "1883", "-i", "docker-healthcheck", "-t", "healthcheck", "-n" ]
       interval: 5s
       timeout: 5s
       retries: 5
