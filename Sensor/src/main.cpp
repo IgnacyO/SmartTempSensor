@@ -74,20 +74,30 @@ uint32_t u32LastMqttConnectAttemptMs = 0;
 JsonDocument xMqttPayload;
 char caPayloadBuffer[MQTT_PAYLOAD_BUFFER_SZ];
 
+// Task and callback functions
+void vMainTask(void *pv);
+void vStartWifi(void);
+void vStartMqtt(void);
+void vHandleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
+void onMqttConnect(bool sessionPresent);
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason);
+
 // Helper functions
 inline int RWorNULL(JsonDocument *pxJsonDoc, void *pvSensor, float (*xReadingFn)(void *), const char *key)
 {
   float reading = xReadingFn(pvSensor);
-  if ((reading == 0 && sensorError == 0) || sensorError > 1)
+  if (sensorError != SENSOR_OK || isnan(reading))
   {
-    (*pxJsonDoc)[key] = nullptr; // Writes null value instead of 0
+    Serial.printf("[SENSOR] Skipping %s in payload: %s (%d)\n", key, pcSensorErrorToString(sensorError), sensorError);
+    (*pxJsonDoc)[key] = nullptr;
     return 0;
   }
+
   (*pxJsonDoc)[key] = reading;
   return -1;
 }
 
-const char *pcMqttDisconnectReasonToString(AsyncMqttClientDisconnectReason reason)
+inline const char *pcMqttDisconnectReasonToString(AsyncMqttClientDisconnectReason reason)
 {
   switch (reason)
   {
@@ -112,7 +122,7 @@ const char *pcMqttDisconnectReasonToString(AsyncMqttClientDisconnectReason reaso
   }
 }
 
-const char *pcWiFiDisconnectReasonToString(uint8_t reason)
+inline const char *pcWiFiDisconnectReasonToString(uint8_t reason)
 {
   switch (reason)
   {
@@ -135,38 +145,9 @@ const char *pcWiFiDisconnectReasonToString(uint8_t reason)
   }
 }
 
-uint16_t u16GetMqttPort(void)
+inline uint16_t u16GetMqttPort(void)
 {
   return static_cast<uint16_t>(atoi(MQTT_PORT));
-}
-
-// Task and callback functions
-void vMainTask(void *pv);
-
-// State specific functions
-void vStartWifi(void);
-void vStartMqtt(void);
-
-void vHandleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
-{
-  switch (event)
-  {
-  case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-    xWifiConnected = true;
-    Serial.print("[WiFi] Connected. IP: ");
-    Serial.println(WiFi.localIP());
-    eProgState = ConnectingMqtt;
-    break;
-  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-    xWifiConnected = false;
-    xMqttConnected = false;
-    xMqttConnecting = false;
-    Serial.printf("[WiFi] Disconnected. reason=%u (%s)\n", info.wifi_sta_disconnected.reason, pcWiFiDisconnectReasonToString(info.wifi_sta_disconnected.reason));
-    eProgState = ConnectingWiFi;
-    break;
-  default:
-    break;
-  }
 }
 
 inline void vBlinkLedFor(u16_t usPeriodMs)
@@ -177,26 +158,7 @@ inline void vBlinkLedFor(u16_t usPeriodMs)
   vTaskDelay(pdMS_TO_TICKS(usPeriodMs / 2));
 }
 
-void onMqttConnect(bool sessionPresent)
-{
-  xMqttConnected = true;
-  xMqttConnecting = false;
-  xMqttConnectedEvent = true;
-  eProgState = Idle;
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
-{
-  xMqttConnected = false;
-  xMqttConnecting = false;
-  xLastMqttDisconnectReason = static_cast<int>(reason);
-  xMqttDisconnectedEvent = true;
-}
-
-void onMqttPublish(uint16_t packetId)
-{
-  (void)packetId;
-}
+// Function definitions
 
 void setup()
 {
@@ -210,15 +172,18 @@ void setup()
       .pin = GPIO_NUM_15,
       .dht_no = DHT11};
 
-  pvSensor = pvInit(nullptr);
-  if (sensorError)
+  pvSensor = pvInit(&xDhtParams);
+  if (sensorError != SENSOR_OK)
   {
+    Serial.printf("[SYS] Sensor initialization failed: %s (%d)\n", pcSensorErrorToString(sensorError), sensorError);
     for (;;)
       ;
   }
+
   vBegin(pvSensor);
-  if (sensorError)
+  if (sensorError != SENSOR_OK)
   {
+    Serial.printf("[SYS] Sensor begin failed: %s (%d)\n", pcSensorErrorToString(sensorError), sensorError);
     for (;;)
       ;
   }
@@ -240,7 +205,6 @@ void setup()
   xMqttClient.setServer(MQTT_HOST, u16GetMqttPort());
   xMqttClient.onConnect(onMqttConnect);
   xMqttClient.onDisconnect(onMqttDisconnect);
-  xMqttClient.onPublish(onMqttPublish);
 
   WiFi.onEvent(vHandleWiFiEvent);
   WiFi.mode(WIFI_STA);
@@ -320,10 +284,13 @@ void vMainTask(void *pv)
     }
 
     eProgState = Publishing;
+    xMqttPayload.clear();
+    xMqttPayload["sensor"] = pcGetSensorName();
     RWorNULL(&xMqttPayload, pvSensor, fGetTemperature, "temperature");
     RWorNULL(&xMqttPayload, pvSensor, fGetHumidity, "humidity");
     RWorNULL(&xMqttPayload, pvSensor, fGetQuality, "quality");
     serializeJson(xMqttPayload, caPayloadBuffer);
+    Serial.printf("[MQTT] Publishing payload: %s\n", caPayloadBuffer);
     xMqttClient.publish(MQTT_TOPIC, 0, false, caPayloadBuffer);
     eProgState = Idle;
   }
@@ -372,4 +339,42 @@ void vStartMqtt(void)
   Serial.printf("[MQTT] Connecting to broker %s:%u...\n", MQTT_HOST, u16GetMqttPort());
   eProgState = ConnectingMqtt;
   xMqttClient.connect();
+}
+
+void vHandleWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+  switch (event)
+  {
+  case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+    xWifiConnected = true;
+    Serial.print("[WiFi] Connected. IP: ");
+    Serial.println(WiFi.localIP());
+    eProgState = ConnectingMqtt;
+    break;
+  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+    xWifiConnected = false;
+    xMqttConnected = false;
+    xMqttConnecting = false;
+    Serial.printf("[WiFi] Disconnected. reason=%u (%s)\n", info.wifi_sta_disconnected.reason, pcWiFiDisconnectReasonToString(info.wifi_sta_disconnected.reason));
+    eProgState = ConnectingWiFi;
+    break;
+  default:
+    break;
+  }
+}
+
+void onMqttConnect(bool sessionPresent)
+{
+  xMqttConnected = true;
+  xMqttConnecting = false;
+  xMqttConnectedEvent = true;
+  eProgState = Idle;
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason)
+{
+  xMqttConnected = false;
+  xMqttConnecting = false;
+  xLastMqttDisconnectReason = static_cast<int>(reason);
+  xMqttDisconnectedEvent = true;
 }

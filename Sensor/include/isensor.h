@@ -1,6 +1,17 @@
 #ifndef ISENSOR_H
 #define ISENSOR_H
-int sensorError;
+
+enum SensorErrorCode
+{
+    SENSOR_OK = 0,
+    SENSOR_INIT_FAILED = 1,
+    SENSOR_INVALID_HANDLE = 2,
+    SENSOR_READ_FAILED = 3,
+    SENSOR_INVALID_CONFIG = 4
+};
+
+extern int sensorError;
+const char *pcSensorErrorToString(int code);
 float fGetTemperature(void *pvSensor);
 float fGetHumidity(void *pvSensor);
 float fGetQuality(void *pvSensor);
