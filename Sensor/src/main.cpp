@@ -38,7 +38,7 @@ extern "C"
 #define MQTT_PAYLOAD_BUFFER_SZ 2048
 
 #define MAIN_TASK_TIMEOUT_MS 10000
-#define LED_PIN 8
+#define LED_PIN 2
 #define LED_ON LOW
 #define LED_OFF HIGH
 
@@ -205,6 +205,10 @@ void setup()
   Serial.println();
   Serial.println("========================================");
   Serial.println("SmartTempSensor starting up...");
+
+  dht_sensor_params_t xDhtParams = {
+      .pin = GPIO_NUM_15,
+      .dht_no = DHT11};
 
   pvSensor = pvInit(nullptr);
   if (sensorError)
