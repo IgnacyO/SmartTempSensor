@@ -63,6 +63,11 @@ services:
       GF_PATHS_CONFIG: /etc/grafana/config/custom.ini
       GRAFANA_ADMIN_USERNAME: ${GRAFANA_ADMIN_USERNAME}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      INFLUXDB_HOST: influxdb
+      INFLUXDB_MEASUREMENT: ${DOCKER_INFLUXDB_MEASUREMENT}
+      INFLUXDB_INIT_ORG: ${DOCKER_INFLUXDB_INIT_ORG}
+      INFLUXDB_INIT_BUCKET: ${DOCKER_INFLUXDB_INIT_BUCKET}
+      INFLUXDB_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
